@@ -36,6 +36,7 @@
 - `.tauri-updater-key` / `.tauri-updater-password` 仅本地使用，严禁提交到仓库。
 - Kiro 数据文件默认位于 `~/.kiro/`，应用数据在 `~/.kiro-account-manager/`；调试时勿覆盖用户真实配置，先备份。
 - Kiro IDE 必须关闭后再触发切号/重置机器 ID；代理变更需重启 IDE 才生效。
+- **机器码管理**：每个账号都有唯一的 `machineId`（UUID v4 格式）用于标识。应用启动时会自动检测并修复重复的机器码。如需手动修复，可使用 `scripts/fix_duplicate_machine_ids.py` 脚本。详见 `scripts/README_FIX_MACHINE_ID.md`。
 
 ## Public Repo Sync
 - 开发以私有仓库 `dev` 为主；公开仓库默认分支为 `public`，旧版本分支为 `v1.5.1`。

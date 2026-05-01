@@ -210,6 +210,10 @@ async fn login_social(
         existing.user_id = user_id;
         existing.usage_data = Some(usage_result.usage_data);
         existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+        // 刷新账号时，只在机器码缺失时才生成新的
+        if existing.machine_id.is_none() {
+            existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+        }
         existing.clone()
     } else {
         let mut account = Account::new(final_email.clone(), format!("Kiro {provider_id} 账号"));
@@ -300,6 +304,10 @@ async fn login_idc(
         existing.profile_arn = auth_result.profile_arn;
         existing.usage_data = Some(usage_result.usage_data);
         existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+        // 刷新账号时，只在机器码缺失时才生成新的
+        if existing.machine_id.is_none() {
+            existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+        }
         existing.clone()
     } else {
         let mut account = Account::new(final_email.clone(), format!("Kiro {provider_id} 账号"));
@@ -320,9 +328,8 @@ async fn login_idc(
         account.usage_data = Some(usage_result.usage_data);
         account.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
         
-        // 为所有新账号生成 machine_id
-        use crate::commands::machine_guid::get_machine_id;
-        account.machine_id = Some(get_machine_id());
+        // 为新账号生成唯一的机器码（避免使用系统机器码）
+        account.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
         log::info!("Generated machine_id for new {} account", provider_id);
         
         store.accounts.insert(0, account.clone());
@@ -422,6 +429,10 @@ pub async fn handle_kiro_social_callback(
         existing.user_id.clone_from(&user_id);
         existing.usage_data = Some(usage_result.usage_data);
         existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+        // 刷新账号时，只在机器码缺失时才生成新的
+        if existing.machine_id.is_none() {
+            existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+        }
         existing.clone()
     } else {
         let mut account = Account::new(
@@ -436,9 +447,8 @@ pub async fn handle_kiro_social_callback(
         account.usage_data = Some(usage_result.usage_data);
         account.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
         
-        // 为所有新账号生成 machine_id
-        use crate::commands::machine_guid::get_machine_id;
-        account.machine_id = Some(get_machine_id());
+        // 为新账号生成唯一的机器码（避免使用系统机器码）
+        account.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
         log::info!("Generated machine_id for new {} account", pending.provider);
         
         store.accounts.insert(0, account.clone());

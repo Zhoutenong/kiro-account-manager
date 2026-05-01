@@ -144,7 +144,9 @@ pub async fn get_usage_by_provider(
     provider: &str,
     access_token: &str,
 ) -> Result<UsageResult, String> {
-    use crate::commands::machine_guid::get_machine_id;
+    // 为了避免在注册阶段暴露系统机器码，生成随机的临时机器码
+    // 每次注册都使用不同的机器码，避免 AWS 关联注册行为
+    let temp_machine_id = uuid::Uuid::new_v4().to_string().to_lowercase();
 
     // 为了兼容旧调用，创建一个临时账号对象
     let mut temp_account = crate::core::account::Account::new(
@@ -152,7 +154,7 @@ pub async fn get_usage_by_provider(
         String::new(),
     );
     temp_account.provider = Some(provider.to_string());
-    temp_account.machine_id = Some(get_machine_id());
+    temp_account.machine_id = Some(temp_machine_id);
 
     // 根据 provider 设置 auth_method（profile_arn 由 get_usage_by_account 统一处理）
     if provider == "BuilderId" || provider == "Enterprise" {

@@ -502,7 +502,7 @@ pub async fn add_account_by_social(
     state: State<'_, AppState>,
     refresh_token: String,
     provider: Option<String>,
-    machine_id: Option<String>,
+    _machine_id: Option<String>,  // 不再使用，始终生成新的机器码
     access_token: Option<String>,
 ) -> Result<AddAccountResult, String> {
     let idp = provider.as_deref().unwrap_or("Google").to_string(); // ✅ 避免不必要的 clone
@@ -590,6 +590,10 @@ pub async fn add_account_by_social(
         existing.user_id = user_id;
         existing.usage_data = Some(usage_result.usage_data);
         existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+        // 刷新账号时，只在机器码缺失时才生成新的（避免频繁变更机器码引起 AWS 怀疑）
+        if existing.machine_id.is_none() {
+            existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+        }
         existing.clone() // ✅ 必须 clone，因为要返回给前端
     } else {
         let mut account = Account::new(final_email.clone(), format!("Kiro {idp} 账号"));
@@ -601,9 +605,8 @@ pub async fn add_account_by_social(
         account.user_id = user_id;
         account.usage_data = Some(usage_result.usage_data);
         account.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
-        // 使用传入的 machine_id，没有则自动生成
-        account.machine_id =
-            machine_id.or_else(|| Some(uuid::Uuid::new_v4().to_string().to_lowercase())); // ✅ 避免 clone
+        // 始终生成新的机器码，忽略传入的 machine_id（确保每个账号都有唯一的机器码）
+        account.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
         store.accounts.insert(0, account.clone());
         account
     };
@@ -1031,6 +1034,10 @@ async fn add_account_by_idc_internal(
             }
             existing.usage_data = Some(usage_result.usage_data);
             existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+            // 刷新账号时，只在机器码缺失时才生成新的（避免频繁变更机器码引起 AWS 怀疑）
+            if existing.machine_id.is_none() {
+                existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+            }
             existing.clone()
         } else {
             // 创建新的 Enterprise 账号
@@ -1051,12 +1058,8 @@ async fn add_account_by_idc_internal(
             account.sso_session_id = sso_session_id;
             account.usage_data = Some(usage_result.usage_data);
             account.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
-            account.machine_id = Some(
-                params
-                    .machine_id
-                    .clone()
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string().to_lowercase()),
-            );
+            // 始终生成新的机器码（确保每个账号都有唯一的机器码）
+            account.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
             account.password.clone_from(&params.password);
             store.accounts.insert(0, account.clone());
             account
@@ -1107,6 +1110,10 @@ async fn add_account_by_idc_internal(
             }
             existing.usage_data = Some(usage_result.usage_data);
             existing.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
+            // 刷新账号时，只在机器码缺失时才生成新的（避免频繁变更机器码引起 AWS 怀疑）
+            if existing.machine_id.is_none() {
+                existing.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
+            }
             existing.clone()
         } else {
             // 创建新的 BuilderId 账号
@@ -1134,11 +1141,8 @@ async fn add_account_by_idc_internal(
             account.sso_session_id = sso_session_id;
             account.usage_data = Some(usage_result.usage_data);
             account.status = calc_status(usage_result.is_banned, usage_result.is_auth_error);
-            account.machine_id = Some(
-                params
-                    .machine_id
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string().to_lowercase()),
-            );
+            // 始终生成新的机器码（确保每个账号都有唯一的机器码）
+            account.machine_id = Some(uuid::Uuid::new_v4().to_string().to_lowercase());
             account.password = params.password;
             store.accounts.insert(0, account.clone());
             account

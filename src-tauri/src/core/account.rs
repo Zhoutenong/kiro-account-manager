@@ -465,9 +465,19 @@ impl AccountStore {
             file_path,
         };
 
+        let mut needs_save = false;
+
         if store.normalize_in_place() {
+            needs_save = true;
+        }
+
+        if store.fix_duplicate_machine_ids() {
+            needs_save = true;
+        }
+
+        if needs_save {
             if let Err(error) = store.try_save_to_file() {
-                eprintln!("[AccountStore] 规范化账号文件回写失败: {error}");
+                eprintln!("[AccountStore] 保存账号文件失败: {error}");
             }
         }
 
@@ -543,6 +553,52 @@ impl AccountStore {
         let current = std::mem::take(&mut self.accounts);
         let (normalized, changed) = normalize_accounts(current);
         self.accounts = normalized;
+        changed
+    }
+
+    /// 修复重复的机器码
+    /// 为每个账号确保有唯一的机器码
+    fn fix_duplicate_machine_ids(&mut self) -> bool {
+        use std::collections::HashSet;
+        
+        let mut seen = HashSet::new();
+        let mut changed = false;
+        let mut duplicate_count = 0;
+
+        for account in &mut self.accounts {
+            if let Some(ref machine_id) = account.machine_id {
+                if !seen.insert(machine_id.clone()) {
+                    // 重复的机器码，生成新的
+                    let new_machine_id = Uuid::new_v4().to_string().to_lowercase();
+                    eprintln!(
+                        "[AccountStore] 检测到重复机器码，为账号 {} 生成新机器码: {} → {}",
+                        account.get_display_id(),
+                        machine_id,
+                        new_machine_id
+                    );
+                    account.machine_id = Some(new_machine_id.clone());
+                    seen.insert(new_machine_id);
+                    changed = true;
+                    duplicate_count += 1;
+                }
+            } else {
+                // 没有机器码，生成新的
+                let new_machine_id = Uuid::new_v4().to_string().to_lowercase();
+                eprintln!(
+                    "[AccountStore] 为账号 {} 生成机器码: {}",
+                    account.get_display_id(),
+                    new_machine_id
+                );
+                account.machine_id = Some(new_machine_id.clone());
+                seen.insert(new_machine_id);
+                changed = true;
+            }
+        }
+
+        if duplicate_count > 0 {
+            eprintln!("[AccountStore] 修复了 {} 个重复的机器码", duplicate_count);
+        }
+
         changed
     }
 
@@ -821,7 +877,7 @@ impl GroupTagStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_usage_capped, normalize_accounts, Account};
+    use super::{is_usage_capped, normalize_accounts, Account, AccountStore};
 
     #[test]
     fn account_is_not_available_when_monthly_usage_is_capped() {
@@ -895,5 +951,133 @@ mod tests {
 
         assert!(!changed);
         assert_eq!(normalized.len(), 2);
+    }
+
+    #[test]
+    fn fix_duplicate_machine_ids_generates_unique_ids() {
+        use std::path::PathBuf;
+        
+        // 创建测试账号，所有账号使用相同的机器码
+        let duplicate_machine_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890".to_string();
+        
+        let mut account1 = Account::new("user1@example.com".to_string(), "User 1".to_string());
+        account1.machine_id = Some(duplicate_machine_id.clone());
+        
+        let mut account2 = Account::new("user2@example.com".to_string(), "User 2".to_string());
+        account2.machine_id = Some(duplicate_machine_id.clone());
+        
+        let mut account3 = Account::new("user3@example.com".to_string(), "User 3".to_string());
+        account3.machine_id = Some(duplicate_machine_id.clone());
+        
+        // 创建 AccountStore（不使用文件）
+        let mut store = AccountStore {
+            accounts: vec![account1, account2, account3],
+            file_path: PathBuf::from("/tmp/test-accounts.json"),
+        };
+        
+        // 修复重复的机器码
+        let changed = store.fix_duplicate_machine_ids();
+        
+        // 验证结果
+        assert!(changed, "应该检测到并修复重复的机器码");
+        assert_eq!(store.accounts.len(), 3, "账号数量应该保持不变");
+        
+        // 收集所有机器码
+        let machine_ids: Vec<String> = store.accounts
+            .iter()
+            .filter_map(|a| a.machine_id.clone())
+            .collect();
+        
+        // 验证所有账号都有机器码
+        assert_eq!(machine_ids.len(), 3, "所有账号都应该有机器码");
+        
+        // 验证所有机器码都是唯一的
+        let unique_ids: std::collections::HashSet<_> = machine_ids.iter().collect();
+        assert_eq!(unique_ids.len(), 3, "所有机器码都应该是唯一的");
+        
+        // 验证第一个账号保留了原机器码
+        assert_eq!(
+            store.accounts[0].machine_id.as_deref(),
+            Some(duplicate_machine_id.as_str()),
+            "第一个账号应该保留原机器码"
+        );
+        
+        // 验证其他账号的机器码已更改
+        assert_ne!(
+            store.accounts[1].machine_id.as_deref(),
+            Some(duplicate_machine_id.as_str()),
+            "第二个账号的机器码应该已更改"
+        );
+        assert_ne!(
+            store.accounts[2].machine_id.as_deref(),
+            Some(duplicate_machine_id.as_str()),
+            "第三个账号的机器码应该已更改"
+        );
+    }
+
+    #[test]
+    fn fix_duplicate_machine_ids_generates_ids_for_missing() {
+        use std::path::PathBuf;
+        
+        // 创建测试账号，部分账号没有机器码
+        let mut account1 = Account::new("user1@example.com".to_string(), "User 1".to_string());
+        account1.machine_id = None;
+        
+        let mut account2 = Account::new("user2@example.com".to_string(), "User 2".to_string());
+        account2.machine_id = None;
+        
+        let mut store = AccountStore {
+            accounts: vec![account1, account2],
+            file_path: PathBuf::from("/tmp/test-accounts.json"),
+        };
+        
+        // 修复缺失的机器码
+        let changed = store.fix_duplicate_machine_ids();
+        
+        // 验证结果
+        assert!(changed, "应该为缺失机器码的账号生成新机器码");
+        assert!(store.accounts[0].machine_id.is_some(), "第一个账号应该有机器码");
+        assert!(store.accounts[1].machine_id.is_some(), "第二个账号应该有机器码");
+        assert_ne!(
+            store.accounts[0].machine_id,
+            store.accounts[1].machine_id,
+            "两个账号的机器码应该不同"
+        );
+    }
+
+    #[test]
+    fn fix_duplicate_machine_ids_no_change_when_all_unique() {
+        use std::path::PathBuf;
+        
+        // 创建测试账号，所有账号都有唯一的机器码
+        let mut account1 = Account::new("user1@example.com".to_string(), "User 1".to_string());
+        account1.machine_id = Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890".to_string());
+        
+        let mut account2 = Account::new("user2@example.com".to_string(), "User 2".to_string());
+        account2.machine_id = Some("f9e8d7c6-b5a4-3210-9876-543210fedcba".to_string());
+        
+        let original_machine_id_1 = account1.machine_id.clone();
+        let original_machine_id_2 = account2.machine_id.clone();
+        
+        let mut store = AccountStore {
+            accounts: vec![account1, account2],
+            file_path: PathBuf::from("/tmp/test-accounts.json"),
+        };
+        
+        // 尝试修复（应该不需要修复）
+        let changed = store.fix_duplicate_machine_ids();
+        
+        // 验证结果
+        assert!(!changed, "所有机器码都是唯一的，不应该有变更");
+        assert_eq!(
+            store.accounts[0].machine_id,
+            original_machine_id_1,
+            "第一个账号的机器码应该保持不变"
+        );
+        assert_eq!(
+            store.accounts[1].machine_id,
+            original_machine_id_2,
+            "第二个账号的机器码应该保持不变"
+        );
     }
 }
